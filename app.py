@@ -1,49 +1,78 @@
 """Streamlit app for visualizing garment seasonality analysis."""
 
+import io
 import pickle
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
+from google.auth.transport.requests import Request
+from google.cloud import storage
+from google.oauth2.credentials import Credentials
 
 # App configuration
 st.set_page_config(page_title="Seasonality Viewer", page_icon="📊", layout="wide")
 
-# Paths to data files - look in data/ subdirectory
-DATA_DIR = Path(__file__).parent / "data"
+# GCS configuration
+GCS_BUCKET = "rental-ds-mr"
+GCS_PREFIX = "personal/gabe/season_assignment_data/"
+
+
+@st.cache_resource
+def get_gcs_client():
+    """Get GCS client using Streamlit secrets (authorized_user credentials)."""
+    creds_info = st.secrets["gcp_user_credentials"]
+    credentials = Credentials(
+        token=None,
+        refresh_token=creds_info["refresh_token"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=creds_info["client_id"],
+        client_secret=creds_info["client_secret"],
+    )
+    credentials.refresh(Request())
+    return storage.Client(credentials=credentials, project=creds_info.get("quota_project_id", "rental-ds"))
+
+
+def download_blob_to_memory(client: storage.Client, blob_name: str) -> bytes:
+    """Download a blob from GCS to memory."""
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(f"{GCS_PREFIX}{blob_name}")
+    return blob.download_as_bytes()
 
 
 @st.cache_resource
 def load_data():
-    """Load all required data files."""
+    """Load all required data files from GCS."""
+    client = get_gcs_client()
+
     # Main evaluation dataframe - index by Choice ID for fast lookup
-    df = pd.read_csv(DATA_DIR / "combined_eval_df_w_ensemble.csv")
+    csv_bytes = download_blob_to_memory(client, "combined_eval_df_w_ensemble.csv")
+    df = pd.read_csv(io.BytesIO(csv_bytes))
     df.set_index("Choice ID", inplace=True, drop=False)
 
     # Prophet forecasts
-    with open(DATA_DIR / "dict_choice_prophet.pkl", "rb") as f:
-        dict_choice_prophet = pickle.load(f)
+    pkl_bytes = download_blob_to_memory(client, "dict_choice_prophet.pkl")
+    dict_choice_prophet = pickle.loads(pkl_bytes)
 
     # Detected peaks and troughs
-    with open(DATA_DIR / "dict_detected_peaks.pkl", "rb") as f:
-        dict_detected_peaks = pickle.load(f)
+    pkl_bytes = download_blob_to_memory(client, "dict_detected_peaks.pkl")
+    dict_detected_peaks = pickle.loads(pkl_bytes)
 
-    with open(DATA_DIR / "dict_detected_troughs.pkl", "rb") as f:
-        dict_detected_troughs = pickle.load(f)
+    pkl_bytes = download_blob_to_memory(client, "dict_detected_troughs.pkl")
+    dict_detected_troughs = pickle.loads(pkl_bytes)
 
     # Weekly orders data - pre-group by choice_id for O(1) lookup
-    weekly_orders_path = DATA_DIR / "df_weekly_choice_orders.csv"
-    if weekly_orders_path.exists():
+    try:
+        csv_bytes = download_blob_to_memory(client, "df_weekly_choice_orders.csv")
         df_weekly_orders = pd.read_csv(
-            weekly_orders_path,
+            io.BytesIO(csv_bytes),
             names=["choice_id", "week_id", "image_url", "num_orders", "mean_orders_per_week", "total_weeks_history"],
             index_col=0,
         )
         df_weekly_orders["week_id"] = pd.to_datetime(df_weekly_orders["week_id"])
         # Pre-group into dict for fast lookup
         weekly_orders_dict = {cid: grp for cid, grp in df_weekly_orders.groupby("choice_id")}
-    else:
+    except Exception:
         weekly_orders_dict = {}
 
     return df, dict_choice_prophet, dict_detected_peaks, dict_detected_troughs, weekly_orders_dict
