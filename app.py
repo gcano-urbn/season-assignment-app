@@ -14,8 +14,8 @@ from google.oauth2.credentials import Credentials
 st.set_page_config(page_title="Seasonality Viewer", page_icon="📊", layout="wide")
 
 # GCS configuration
-GCS_BUCKET = "rental-ds-mr"
-GCS_PREFIX = "personal/gabe/season_assignment_data/"
+GCS_BUCKET = st.secrets["gcs"]["bucket"]
+GCS_PREFIX = st.secrets["gcs"]["prefix"]
 
 
 @st.cache_resource
