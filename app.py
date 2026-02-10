@@ -160,7 +160,7 @@ def main():
 
         with col1:
             actual_season = row.get("Season", None)
-            st.metric("Actual Season", actual_season if pd.notna(actual_season) else "N/A")
+            st.metric("Buyer-Labeled Season", actual_season if pd.notna(actual_season) else "N/A")
 
         with col2:
             model_season = row.get("Final Model Season", "N/A")
