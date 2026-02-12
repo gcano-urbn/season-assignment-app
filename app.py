@@ -40,7 +40,7 @@ def download_blob_to_memory(client: storage.Client, blob_name: str) -> bytes:
     return blob.download_as_bytes()
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading data...")
 def load_data():
     """Load all required data files from GCS."""
     client = get_gcs_client()
